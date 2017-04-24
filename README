@@ -1,0 +1,65 @@
+pollcompat
+==========
+
+`poll` API compatibility for Darwin
+
+
+Wherefore
+---------
+
+Many software packages use the `poll` API instead of the `select` API to
+determine when file descriptors are ready for reading and/or writing etc.
+
+Unfortunately on the "Darwin" platform the `poll` API man page contains this
+little tidbit:
+
+    BUGS
+        The poll() system call currently does not support devices.
+
+To elaborate on that a bit, if the file descriptor is a character device such
+as `isatty` or a serial port device (perhaps via a third party add-on) the
+`poll` system call must not be used or incorrect results will ensue.
+
+
+How So
+------
+
+A small wrapper `pollcompat` function is provided that has an identical API
+to the `poll` function except that it works on devices by redirecting the
+function call to `select`.  Compiling with `-Dpoll=pollcompat` and then linking
+with the `pollcompat.o` object file supplies the necessary functionality.
+
+By default, if all passed file descriptors are valid, open and `!isatty` then
+the standard system `poll` function is used.  However, building `pollcompat.o`
+with the `-DPOLLCOMPAT_ALWAYS` option will prevent the system `poll` function
+from ever being used.
+
+By default, any file descriptors with a value greater than or equal to
+1024 (FD_SETSIZE) will result in an error unless the system `poll` function
+ended up being used to implement the call.  Building `pollcompat.o` with the
+`-DPOLLCOMPAT_UNLIMITED` option will allow file descriptors up to a value of
+10239 (OPEN_MAX - 1) to be used (Darwin never supports more than 10240 file
+descriptors) but each `pollcompat` call that uses file descriptors with a value
+larger than 1023 will result in a pair of calloc/free calls.
+
+
+LibreSSL
+--------
+
+The following settings:
+
+    CPPFLAGS='-DIPV6_TCLASS=36 -Dpoll=pollcompat' LIBS="-L$PWD -lpollcompat"
+
+are sufficient when running the LibreSSL `configure` script provided that the
+`pollcompat.c` source file has already been compiled with something like this:
+
+    cc -c -o pollcompat.o -O2 pollcompat.c
+    ar cru libpollcompat.a pollcompat.o
+    ranlib libpollcompat.a
+
+(The `-DIPV6_TCLASS=36` part can be omitted when building for Mac OS X 10.6 or
+later and only affects building the netcat `nc` binary.)
+
+A LibreSSL built this way passes all tests and both of the resulting `nc` and
+`openssl` binaries are fully operational when talking to a tty on standard
+input (i.e. `nc localhost 80` or `openssl s_client -connect localhost:443`).

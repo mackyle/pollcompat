@@ -1,0 +1,3 @@
+/libpollcompat.*
+/pollcompat.d*
+/pollcompat.o*
