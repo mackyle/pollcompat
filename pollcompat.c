@@ -1,7 +1,7 @@
 /*
 
 pollcompat -- poll API compatibility for darwin
-Copyright (C) 2017 Kyle J. McKay.
+Copyright (C) 2017,2018 Kyle J. McKay.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -43,6 +43,7 @@ POSSIBILITY OF SUCH DAMAGE.
 #include <limits.h>
 
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/ioctl.h>
 #include <sys/select.h>
@@ -63,6 +64,30 @@ static int reterr(int e)
 	return -1;
 }
 
+#ifndef POLLCOMPAT_ALWAYS
+/* The isatty function call only returns true for tty devices, not for all
+ * devices; roll our own that uses fstat to match any non fifo/socket/file fds.
+ */
+static int isadevice(int fd)
+{
+	struct stat info;
+	mode_t kind;
+
+	if (fstat(fd, &info))
+		/* This includes an EOVERFLOW error which can only happen on
+		 * a file and therefore such an fd is NOT a device! */
+		return 0;
+
+	kind = info.st_mode;
+	/* Darwin's poll doesn't actually work on the "FIFO" type either,
+	** well sort of.  It seems to work okay on a regular pipe, but not on a
+	** named pipe (e.g. mkfifo), but since there's no way to distinguish we
+	** therefore disallow S_ISFIFO and categorize them both as "devices".
+	*/
+	return !(S_ISREG(kind) || S_ISSOCK(kind));
+}
+#endif
+
 static int can_sys_poll(const struct pollfd fds[], nfds_t nfds)
 {
 #	ifdef POLLCOMPAT_ALWAYS
@@ -81,8 +106,8 @@ static int can_sys_poll(const struct pollfd fds[], nfds_t nfds)
 			++invalid;
 			continue; /* invalid fd */
 		}
-		if (isatty(fds[i].fd))
-			return 0; /* the system poll never works on ttys */
+		if (isadevice(fds[i].fd))
+			return 0; /* the system poll never works on devices */
 		++valid;
 	}
 	/* The cURL project has a nice description of poll's various failings:
@@ -221,9 +246,20 @@ static int dopoll(struct pollfd fds[], nfds_t nfds, fd_set *set[3], int timeout)
 			continue; /* ignore < 0 or already processed */
 		if (fcntl(fd, F_GETFD) == -1)
 			fds[i].revents |= POLLHUP;  /* kludge */
-		else if (FD_ISSET(fd, set[2]))
-				fds[i].revents |= POLLERR;
 		else {
+			if (FD_ISSET(fd, set[2])) {
+				/* kludge alert
+				** if a descriptor is ready for reading AND has
+				** an error then we do NOT set POLLERR nor do
+				** we set POLLHUP!  Both /dev/null and /dev/zero
+				** devices can cause this, but only one of them
+				** is in a "POLLHUP" state, but in either case
+				** the "read" call will return without blocking
+				** and it will be discovered which at that time.
+				*/
+				if (!FD_ISSET(fd, set[0]))
+					fds[i].revents |= POLLERR;
+			}
 			if (FD_ISSET(fd, set[1]))
 				fds[i].revents |= POLLWRNORM|POLLOUT;
 			if (FD_ISSET(fd, set[0])) {
