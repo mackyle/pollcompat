@@ -256,8 +256,13 @@ static int dopoll(struct pollfd fds[], nfds_t nfds, fd_set *set[3], int timeout)
 				** is in a "POLLHUP" state, but in either case
 				** the "read" call will return without blocking
 				** and it will be discovered which at that time.
+				** Similarly if a descriptor is ready for
+				** writing and has an error we do NOT set the
+				** POLLERR bit either as a subsequent "write"
+				** call will complete without blocking and
+				** return the error if there really is one.
 				*/
-				if (!FD_ISSET(fd, set[0]))
+				if (!(FD_ISSET(fd, set[0]) || FD_ISSET(fd, set[1])))
 					fds[i].revents |= POLLERR;
 			}
 			if (FD_ISSET(fd, set[1]))
