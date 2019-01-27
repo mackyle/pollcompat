@@ -46,6 +46,7 @@ POSSIBILITY OF SUCH DAMAGE.
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/ioctl.h>
+#include <sys/param.h>
 #include <sys/select.h>
 #include <unistd.h>
 
@@ -65,6 +66,16 @@ static int reterr(int e)
 }
 
 #ifndef POLLCOMPAT_ALWAYS
+static int isapathfd(int fd)
+{
+#if defined(F_GETPATH) && defined(MAXPATHLEN)
+	char scratchpath[MAXPATHLEN+1];
+	return fcntl(fd, F_GETPATH, scratchpath) != -1;
+#else
+	return 0;
+#endif
+}
+
 /* The isatty function call only returns true for tty devices, not for all
  * devices; roll our own that uses fstat to match any non fifo/socket/file fds.
  */
@@ -79,12 +90,14 @@ static int isadevice(int fd)
 		return 0;
 
 	kind = info.st_mode;
-	/* Darwin's poll doesn't actually work on the "FIFO" type either,
-	** well sort of.  It seems to work okay on a regular pipe, but not on a
-	** named pipe (e.g. mkfifo), but since there's no way to distinguish we
-	** therefore disallow S_ISFIFO and categorize them both as "devices".
+	/* Darwin's poll works on unnamed pipes (and gives us a helpful
+	** POLLNVAL on EPIPE in that case), but does NOT work on a mkfifo
+	** style pipe at all.  If we have the F_GETPATH fcntl then we can
+	** tell the difference as F_GETPATH will succeed for a mkfifo but
+	** fail for a regular pipe.
 	*/
-	return !(S_ISREG(kind) || S_ISSOCK(kind));
+	return !(S_ISREG(kind) || S_ISSOCK(kind) ||
+		 (S_ISFIFO(kind) && !isapathfd(fd)));
 }
 #endif
 
