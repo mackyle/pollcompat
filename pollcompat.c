@@ -1,7 +1,7 @@
 /*
 
 pollcompat -- poll API compatibility for darwin
-Copyright (C) 2017,2018 Kyle J. McKay.
+Copyright (C) 2017,2018,2019 Kyle J. McKay.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -228,14 +228,21 @@ static int dopoll(struct pollfd fds[], nfds_t nfds, fd_set *set[3], int timeout)
 			++extra;
 			continue; /* invalid fd */
 		}
-		/* always request error state as POLLERR must always be returned */
-		FD_SET(fds[i].fd, set[2]);
+		/* we should always request error state as POLLERR must always
+		** be returned, BUT the errorfds bits are completely unreliable
+		** and may and up being set for no "errorful" reason, so never
+		** ever set the bit in set[2] except when at least one of the
+		** other bits is also being set. */
 		if (fds[i].fd >= fdcnt)
 			fdcnt = fds[i].fd + 1;
-		if (fds[i].events & (POLLRDNORM|POLLIN))
+		if (fds[i].events & (POLLRDNORM|POLLIN)) {
 			FD_SET(fds[i].fd, set[0]);
-		if (fds[i].events & (POLLWRNORM|POLLOUT))
-			    FD_SET(fds[i].fd, set[1]);
+			FD_SET(fds[i].fd, set[2]);
+		}
+		if (fds[i].events & (POLLWRNORM|POLLOUT)) {
+			FD_SET(fds[i].fd, set[1]);
+			FD_SET(fds[i].fd, set[2]);
+		}
 	}
 	result = select(fdcnt, set[0], set[1], set[2], tvp);
 	if (result < 0)
