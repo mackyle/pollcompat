@@ -189,7 +189,10 @@ pollcompat(struct pollfd fds[], nfds_t nfds, int timeout)
 	size_t setsize;
 	int result;
 
-	if (nfds > OPEN_MAX || timeout < -1) return reterr(EINVAL);
+#ifdef OPEN_MAX
+	if (nfds > OPEN_MAX) return reterr(EINVAL);
+#endif
+	if (timeout < -1) return reterr(EINVAL);
 	if (nfds > 0 && fds == NULL) return reterr(EINVAL);
 	if (can_sys_poll(fds, nfds))
 		return poll(fds, nfds, timeout);
