@@ -20,6 +20,16 @@ To elaborate on that a bit, if the file descriptor is a character device such
 as `isatty` or a serial port device (perhaps via a third party add-on) the
 `poll` system call must not be used or incorrect results will ensue.
 
+To check for the problem using LibreSSL, execute this test command:
+
+    openssl s_client -connect 8.8.8.8:443 </dev/null >/dev/null
+
+Output should be less than a dozen lines of text with the *last* line being
+exactly `DONE` and nothing else.  If the last line is `poll error` instead then
+this pollcompat workaround will be needed for correct operation.  Feel free to
+replace the `8.8.8.8` in the test command with the name or address of your
+favorite SSL/TLS server (that's listening on port 443) instead.
+
 
 How So
 ------
